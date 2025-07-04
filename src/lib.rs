@@ -13,6 +13,7 @@ pub trait Effect {
 }
 
 /// Dynamic dispatching wrapper for [Effect] trait.
+#[derive(Clone)]
 pub struct DynEffect {
     data: [MaybeUninit<u8>; MAX_EFFECT_SIZE],
     apply_fn: fn(&mut [MaybeUninit<u8>; MAX_EFFECT_SIZE], u16) -> u16,
@@ -53,8 +54,10 @@ impl DynEffect {
 pub struct Axis {
     pub min: u16,
     pub max: u16,
-    value: u16,
     pub reversed: bool,
+    pub step_filter_factor: u16,
+    old_value: u16,
+    value: u16,
 }
 
 impl<'a> Axis {
@@ -63,20 +66,35 @@ impl<'a> Axis {
             min,
             max,
             reversed,
+            step_filter_factor: 0,
+            old_value: min,
             value: min,
+        }
+    }
+
+    fn step_filter(&mut self, value: u16) -> u16 {
+        if self.step_filter_factor == 0 {
+            return value
+        }
+
+        if (value as i16 - self.old_value as i16).abs() >= self.step_filter_factor as i16 {
+            self.old_value = value;
+            value
+        } else {
+            self.old_value
         }
     }
 
     fn output_ranged(&self) -> u16 {
         let mut normalized = self.value;
         if self.reversed {
-            normalized = self.max - (self.value - self.min);
+            normalized = self.max.saturating_sub(self.value.saturating_sub(self.min));
         }
         normalized.clamp(self.min, self.max)
     }
 
     pub fn update<I: IntoIterator<Item = &'a mut DynEffect>>(&mut self, value: u16, chain: I) {
-        self.value = value;
+        self.value = self.step_filter(value);
         for filter in chain {
             self.value = filter.update(self.value);
         }
@@ -93,7 +111,7 @@ impl<'a> Axis {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::effects::{Lerp, Step};
+    use crate::effects::Lerp;
 
     #[test]
     fn basic_output() {
@@ -103,17 +121,15 @@ mod tests {
     }
 
     #[test]
-    fn step_effect() {
+    fn step_filter() {
         let mut axis = Axis::new(0, 128, false);
-        let mut effects = [Step::new(10).into()];
+        axis.step_filter_factor = 10;
 
         for i in 0..9 {
-            axis.update(i, effects.iter_mut());
+            axis.update(i, []);
         }
         assert_eq!(axis.output(0, 128), 0);
-        
-        axis.update(10, effects.iter_mut());
-        
+        axis.update(10, []);
         assert_eq!(axis.output(0, 128), 10);
     }
 

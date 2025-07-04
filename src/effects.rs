@@ -40,31 +40,30 @@ impl Effect for Lerp {
     }
 }
 
-impl_into_dyn_effect!(Lerp);
-
-pub struct Step {
-    sensivity: u16,
-    old_value: u16,
+/// Laggy-smooth effect
+#[derive(Default)]
+pub struct Smooth {
+    current: u16,
+    target: u16,
+    speed: u16
 }
 
-impl Effect for Step {
-    fn update(&mut self, value: u16) -> u16 {
-        if (value as i16 - self.old_value as i16).abs() >= self.sensivity as i16 {
-            self.old_value = value;
-            value
-        } else {
-            self.old_value
-        }
-    }
-}
-
-impl Step {
-    pub fn new(sensivity: u16) -> Step {
+impl Smooth {
+    pub fn new(speed: u16) -> Self {
         Self {
-            sensivity,
-            old_value: 0,
+            current: 0,
+            target: 0,
+            speed
         }
     }
 }
 
-impl_into_dyn_effect!(Step);
+impl Effect for Smooth {
+    fn update(&mut self, input: u16) -> u16 {
+        self.target = input;
+        self.current = self.current.saturating_add(self.speed);
+        self.current.clamp(u16::MIN, self.target)
+    }
+}
+
+impl_into_dyn_effect!(Smooth);
